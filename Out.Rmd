@@ -1,0 +1,272 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Reza Zahedi"
+date: "October 30, 2018"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    smooth_scroll: true
+    number_sections: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+<br>
+
+# Description of the project:
+### Background
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).  
+<br>
+
+### Data
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.  
+<br>
+
+### Project Goal
+
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases.  
+<br>
+
+# Building The Model:
+
+#### Initial Notes:
+
+For prediction the random forest method was chosen. As shown below, the data is
+splitted into three segments, namely, training, testing and validation. Training
+data set was used to train the first model, mdlrf1, which in turn is used to 
+select the most relevant features for prediction. Final model, mdlrf2, has only 
+6 predictors and is 97.9% accurate!  
+<br>
+
+#### Required Libraries:
+
+_Random Forest_ works really faster in from the _randomforest_ library than the _train_ function in _caret_ package.
+
+```{r loading libraries}
+library(caret)
+library(dplyr)
+library(randomForest)
+library(kableExtra) # for table generations
+```
+<br>
+
+#### Setting working directory and downloading and loading data:
+
+```{r downloading data}
+# downloading data
+url1 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+url2 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+if (!file.exists("./hartrain.csv")) download.file(url1, "./hartrain.csv")
+if (!file.exists("./hartest.csv")) download.file(url2, "./hartest.csv")
+## by the way, "har" means human activity recognition
+# reading data into R
+hartest <- read.csv("./hartest.csv", stringsAsFactors = FALSE,
+                    na.strings = c("NA","","#DIV/0!"))
+hartrain <- read.csv("./hartrain.csv", stringsAsFactors = FALSE,
+                     na.strings = c("NA","","#DIV/0!"))
+
+```
+<br>
+
+### Data Manipulation:
+
+#### Removing noisy data:
+
+The data set has a varible that shows if each row is a new window or not, new_window, if the row is not a new window, then some of the variables are
+missing, mostly mean, std, min and max type variables. As one can see, all 
+the data in final test dataset, hartest, dont have the means, maxes and mins,
+so we first remove this almost missing portion of data columns.
+
+```{r removing missing data}
+a <- NULL
+for(i in 1:ncol(hartrain)){
+     if(mean(is.na(hartrain[, i])) > .97){
+          a <- c(a, i)
+     }
+}
+hartrain <- hartrain[, -a]
+hartest <- hartest[, -a]
+dim(hartest)
+dim(hartrain)
+```
+<br>
+
+#### Factorization of output
+
+```{r outpur to factor}
+hartrain[, 'classe'] <- as.factor(hartrain[, 'classe'])
+hartest[, 'problem_id'] <- as.factor(hartest[, 'problem_id'])
+
+```
+<br>
+
+#### Splitting data into train, test and validation sets:
+
+```{r data splitting}
+set.seed(5472)
+inBuild = createDataPartition(hartrain$classe, p = .7)[[1]]
+
+validation <- hartrain[-inBuild, ]
+building <- hartrain[inBuild, ]
+
+inTrain = createDataPartition(building$classe, p = .7)[[1]]
+
+training = building[inTrain, ]
+testing = building[-inTrain, ]
+
+## removing redundant variables
+rm(hartrain, inBuild, inTrain)
+
+dim(training)
+dim(testing)
+dim(validation)
+
+```
+<br>
+
+### Model Creation:
+#### Determinig the columns to include in the model:
+
+For the first model all other variables are selected, expect the first 7 indicator varibles.
+
+```{r fearure selection 1}
+names(training)[1:7]
+a <- c(8:59, ncol(training)) # features to keep in the model. now, all of them!
+
+```
+<br>
+
+#### Creating the model:
+```{r mdlrf1, cache= TRUE}
+set.seed(8520)
+system.time({
+     mdlrf1 = randomForest(classe ~ ., data = training[, a])
+})
+```
+<br>
+
+#### Predicting with model:
+
+```{r prediction of first model}
+predrf1 <-predict(mdlrf1, testing[, a])
+confusionMatrix(testing$classe, predrf1)
+rm(a)
+```
+```{r Accuracy1, include=FALSE}
+b <- confusionMatrix(testing$classe, predrf1)$overall['Accuracy']
+b <- round(b, 3)
+```
+
+As one can see, the _overall accuracy_ of the first model is `r b`.  
+<br>
+
+#### Reducing number of predictors:
+
+Rducing the number of predictor to 6, using the firts model to select the first 6 important features, this is somehow cross validation for feature selection.
+
+```{r feature selection2}
+b <- varImp(mdlrf1)
+a <- NULL # this variable will keep the indices of the most dominant features 
+n <- 6  # number of features to keep
+for(i in rownames(b)[b >= b[order(b, decreasing = TRUE)[n],]]){
+     a <- c(a, grep(i, names(building)))
+}
+a <- c(a, ncol(building))
+```
+<br>
+
+#### Variables selected for the final model:
+
+```{r names final}
+dt <- names(training)[a]
+
+kable(dt) %>%
+     kable_styling(bootstrap_options = c("striped", "hover"),
+                   full_width = F,
+                   position = "center")
+```
+<center>
+_table1. Final model variables_
+</center>  
+<br>
+
+#### Plotting fianal predictors versus each other:
+
+```{r plotting}
+plt <- function(i, j, data = building){
+     g <- ggplot(data = data, aes(x = data[, j], y = data[, i],
+                                  color = classe, alpha = I(.4), size = I(.3)))
+     g + geom_point() + labs(x = names(data)[j], y = names(data)[i])
+}
+gridExtra::grid.arrange(plt(a[1], a[2]), plt(a[3], a[4]),
+                        plt(a[5], a[6]), plt(a[7], a[3]),
+                        ncol = 2)
+
+```
+<br>
+
+#### Creating the second, reduced, model:
+
+```{r mdlrf2}
+set.seed(892)
+system.time({
+     mdlrf2 = randomForest(classe ~ ., data = building[, a])
+})
+```
+<br>
+
+# Final Model Evaluation:
+
+#### Predicting with the second, rediuced, model:
+
+```{r prediction of the final model}
+predrf2 <- predict(mdlrf2, validation[, a])
+confusionMatrix(validation$classe, predrf2)
+```
+```{r Accuracy2, include=FALSE}
+b <- confusionMatrix(validation$classe, predrf2)$overall['Accuracy']
+b <- round(b, 3)
+```
+
+As one can see, the _overall accuracy_ of the final model is `r b`.  
+<br>  
+
+#### Final Model Evaluation:
+
+```{r accuracy table}
+## accuracy table:
+t1 <- table(validation$classe, predrf2)
+```
+<br>
+
+## Prediction of "hartest", pml-testing.csv, data:
+
+```{r quiz prediction}
+names(hartest)[ncol(hartest)] <- names(training)[ncol(training)]
+dt <- t(predict(mdlrf2, hartest[, a]))
+
+kable(dt) %>%
+     kable_styling(bootstrap_options = c("striped", "hover"),
+                   full_width = F,
+                   position = "center")
+```
+<center>
+_table2. Quiz predictions_
+</center>
+
+
+
